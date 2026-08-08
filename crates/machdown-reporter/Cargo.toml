@@ -1,0 +1,9 @@
+[package]
+name = "machdown-reporter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+machdown-rules = { workspace = true }
+colored = { workspace = true }

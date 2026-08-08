@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/machdown-cli",
+    "crates/machdown-config",
+    "crates/machdown-fixer",
+    "crates/machdown-fs",
+    "crates/machdown-parser",
+    "crates/machdown-reporter",
+    "crates/machdown-rules",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+machdown-cli = { path = "crates/machdown-cli" }
+machdown-config = { path = "crates/machdown-config" }
+machdown-fixer = { path = "crates/machdown-fixer" }
+machdown-fs = { path = "crates/machdown-fs" }
+machdown-parser = { path = "crates/machdown-parser" }
+machdown-reporter = { path = "crates/machdown-reporter" }
+machdown-rules = { path = "crates/machdown-rules" }
+clap = { version = "4.5", features = ["derive"] }
+colored = "3.0"
+tempfile = "3.17"
+assert_cmd = "2.0"
+predicates = "3.1"
