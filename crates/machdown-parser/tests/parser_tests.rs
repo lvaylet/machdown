@@ -187,3 +187,49 @@ Paragraph with block ID anchor. ^block-anchor-99
     assert_eq!(block_ids.len(), 1);
     assert_eq!(block_ids[0].id, "block-anchor-99");
 }
+
+#[test]
+fn test_parse_headings_atx_setext_closed() {
+    use machdown_parser::HeadingStyle;
+
+    let source = "# ATX Level 1\n##  ATX Multi Space\n#NoSpaceATX\n# Closed ATX #\n##  Closed Multi Space  ##\nSetext Level 1\n===\nSetext Level 2\n---\n";
+    let doc = parse(source);
+    let headings = doc.headings();
+    assert_eq!(headings.len(), 7);
+
+    assert_eq!(headings[0].level, 1);
+    assert_eq!(headings[0].style, HeadingStyle::Atx);
+    assert_eq!(headings[0].title, "ATX Level 1");
+    assert_eq!(headings[0].opening_spaces, 1);
+    assert_eq!(headings[0].leading_spaces, 0);
+
+    assert_eq!(headings[1].level, 2);
+    assert_eq!(headings[1].style, HeadingStyle::Atx);
+    assert_eq!(headings[1].title, "ATX Multi Space");
+    assert_eq!(headings[1].opening_spaces, 2);
+
+    assert_eq!(headings[2].level, 1);
+    assert_eq!(headings[2].style, HeadingStyle::Atx);
+    assert_eq!(headings[2].title, "NoSpaceATX");
+    assert_eq!(headings[2].opening_spaces, 0);
+
+    assert_eq!(headings[3].level, 1);
+    assert_eq!(headings[3].style, HeadingStyle::AtxClosed);
+    assert_eq!(headings[3].title, "Closed ATX");
+    assert_eq!(headings[3].opening_spaces, 1);
+    assert_eq!(headings[3].closing_spaces, 1);
+
+    assert_eq!(headings[4].level, 2);
+    assert_eq!(headings[4].style, HeadingStyle::AtxClosed);
+    assert_eq!(headings[4].title, "Closed Multi Space");
+    assert_eq!(headings[4].opening_spaces, 2);
+    assert_eq!(headings[4].closing_spaces, 2);
+
+    assert_eq!(headings[5].level, 1);
+    assert_eq!(headings[5].style, HeadingStyle::Setext);
+    assert_eq!(headings[5].title, "Setext Level 1");
+
+    assert_eq!(headings[6].level, 2);
+    assert_eq!(headings[6].style, HeadingStyle::Setext);
+    assert_eq!(headings[6].title, "Setext Level 2");
+}

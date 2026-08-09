@@ -156,5 +156,17 @@ pub trait Rule: Send + Sync {
 
 /// Returns a default vector of all enabled rules.
 pub fn default_rules() -> Vec<Box<dyn Rule>> {
-    vec![Box::new(MD009TrailingWhitespace)]
+    vec![
+        Box::new(MD001HeadingIncrement),
+        Box::new(MD002FirstHeadingLevel::default()),
+        Box::new(MD003HeadingStyle::default()),
+        Box::new(MD009TrailingWhitespace),
+        Box::new(MD018NoMissingSpaceAtx),
+        Box::new(MD019NoMultipleSpaceAtx),
+        Box::new(MD020NoMissingSpaceClosedAtx),
+        Box::new(MD021NoMultipleSpaceClosedAtx),
+        Box::new(MD022BlanksAroundHeadings::default()),
+        Box::new(MD023HeadingStartLeft),
+        Box::new(MD025MultipleTopLevelHeadings::default()),
+    ]
 }

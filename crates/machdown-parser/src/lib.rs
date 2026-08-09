@@ -174,11 +174,25 @@ pub struct TagNode {
     pub span: Span,
 }
 
-/// Heading node (`# Heading`)
+/// Style of heading node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadingStyle {
+    Atx,
+    AtxClosed,
+    Setext,
+}
+
+/// Heading node (`# Heading` or `Heading\n===`)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadingNode {
     pub level: u8,
+    pub style: HeadingStyle,
     pub title: String,
+    pub leading_spaces: usize,
+    pub hash_count: usize,
+    pub opening_spaces: usize,
+    pub closing_hash_count: usize,
+    pub closing_spaces: usize,
     pub span: Span,
 }
 
@@ -337,6 +351,23 @@ impl Document {
             }
         }
     }
+
+    pub fn headings(&self) -> Vec<&HeadingNode> {
+        let mut result = Vec::new();
+        self.collect_headings(&self.nodes, &mut result);
+        result
+    }
+
+    fn collect_headings<'a>(&self, nodes: &'a [Node], out: &mut Vec<&'a HeadingNode>) {
+        for node in nodes {
+            match node {
+                Node::Heading(h) => out.push(h),
+                Node::Callout(c) => self.collect_headings(&c.content, out),
+                Node::Paragraph(children, _) => self.collect_headings(children, out),
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Parse source Markdown string into a lossless `Document`.
@@ -438,7 +469,57 @@ fn parse_ast_nodes(lines: &[Line]) -> Vec<Node> {
         let line = &lines[idx];
         let trimmed_start = line.content().trim_start();
 
+        // Check for Setext Heading
+        if idx + 1 < lines.len() {
+            let current_content = lines[idx].content();
+            let next_content = lines[idx + 1].content();
+            let current_trimmed = current_content.trim();
+            if !current_trimmed.is_empty()
+                && !current_trimmed.starts_with('#')
+                && !current_trimmed.starts_with("> [!")
+                && !current_trimmed.starts_with("$$")
+                && !current_trimmed.starts_with("---")
+            {
+                let next_trimmed = next_content.trim();
+                let setext_level =
+                    if !next_trimmed.is_empty() && next_trimmed.chars().all(|c| c == '=') {
+                        Some(1)
+                    } else if !next_trimmed.is_empty() && next_trimmed.chars().all(|c| c == '-') {
+                        Some(2)
+                    } else {
+                        None
+                    };
+
+                if let Some(level) = setext_level {
+                    let leading_spaces = current_content.len() - current_content.trim_start().len();
+                    let title = current_trimmed.to_string();
+                    let span = Span::new(
+                        lines[idx].byte_offset(),
+                        lines[idx + 1].byte_offset() + lines[idx + 1].byte_len(),
+                        lines[idx].line_number(),
+                        1,
+                        lines[idx + 1].line_number(),
+                        lines[idx + 1].content().len() + 1 + lines[idx + 1].ending().len(),
+                    );
+                    nodes.push(Node::Heading(HeadingNode {
+                        level,
+                        style: HeadingStyle::Setext,
+                        title,
+                        leading_spaces,
+                        hash_count: 0,
+                        opening_spaces: 0,
+                        closing_hash_count: 0,
+                        closing_spaces: 0,
+                        span,
+                    }));
+                    idx += 2;
+                    continue;
+                }
+            }
+        }
+
         // Check for Display Math `$$`
+
         if let Some(rest) = trimmed_start.strip_prefix("$$") {
             let start_idx = idx;
             let mut end_idx = idx;
@@ -664,21 +745,43 @@ fn parse_line(line: &Line, nodes: &mut Vec<Node>) {
     }
 
     // Check for Tags `#tag/subtag` (ignoring ATX headings)
-    let is_atx_heading = {
-        let trimmed = content.trim_start();
-        if trimmed.starts_with('#') {
-            let hash_count = trimmed.chars().take_while(|c| *c == '#').count();
-            (1..=6).contains(&hash_count)
-                && (trimmed[hash_count..].starts_with(' ') || trimmed[hash_count..].is_empty())
-        } else {
-            false
-        }
+    let trimmed_start = content.trim_start();
+    let leading_spaces = content.len() - trimmed_start.len();
+    let is_atx_heading = if trimmed_start.starts_with('#') {
+        let hash_count = trimmed_start.chars().take_while(|c| *c == '#').count();
+        (1..=6).contains(&hash_count)
+    } else {
+        false
     };
 
     if is_atx_heading {
-        let trimmed = content.trim_start();
-        let hash_count = trimmed.chars().take_while(|c| *c == '#').count();
-        let title = trimmed[hash_count..].trim().to_string();
+        let hash_count = trimmed_start.chars().take_while(|c| *c == '#').count();
+        let rest = &trimmed_start[hash_count..];
+        let opening_spaces = rest.chars().take_while(|c| *c == ' ').count();
+        let after_opening = &rest[opening_spaces..];
+
+        let trimmed_after = after_opening.trim_end();
+        let trailing_hashes = trimmed_after
+            .chars()
+            .rev()
+            .take_while(|c| *c == '#')
+            .count();
+
+        let (style, title, closing_hash_count, closing_spaces) =
+            if trailing_hashes > 0 && trimmed_after.len() > trailing_hashes {
+                let before_trailing = &trimmed_after[..trimmed_after.len() - trailing_hashes];
+                let closing_spaces = before_trailing.len() - before_trailing.trim_end().len();
+                let title = before_trailing.trim_end().to_string();
+                (
+                    HeadingStyle::AtxClosed,
+                    title,
+                    trailing_hashes,
+                    closing_spaces,
+                )
+            } else {
+                (HeadingStyle::Atx, after_opening.trim().to_string(), 0, 0)
+            };
+
         let span = Span::new(
             line.byte_offset(),
             line.byte_offset() + line.byte_len(),
@@ -687,9 +790,16 @@ fn parse_line(line: &Line, nodes: &mut Vec<Node>) {
             line.line_number(),
             line.content().len() + 1 + line.ending().len(),
         );
+
         nodes.push(Node::Heading(HeadingNode {
             level: hash_count as u8,
+            style,
             title,
+            leading_spaces,
+            hash_count,
+            opening_spaces,
+            closing_hash_count,
+            closing_spaces,
             span,
         }));
     } else {
