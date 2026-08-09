@@ -107,3 +107,41 @@ More body text.
     assert_eq!(count2, 0);
     assert_eq!(fixed_pass2, fixed);
 }
+
+#[test]
+fn test_list_rules_autofix_and_idempotency_golden() {
+    let dirty_list_input = "\
+Some text before list
+*   Bullet 1 with extra spaces
+- Bullet 2 with inconsistent dash
++ Bullet 3 with plus
+1. Ordered item 1
+1. Ordered item 2
+1. Ordered item 3
+Text immediately after list without blank line
+";
+
+    let rules = default_rules();
+    let (fixed, count) = fix_str(dirty_list_input, &rules);
+
+    assert!(count > 0);
+
+    let expected_fixed = "\
+Some text before list
+
+* Bullet 1 with extra spaces
+* Bullet 2 with inconsistent dash
+* Bullet 3 with plus
+
+1. Ordered item 1
+1. Ordered item 2
+1. Ordered item 3
+
+Text immediately after list without blank line
+";
+    assert_eq!(fixed, expected_fixed);
+
+    let (fixed_pass2, count2) = fix_str(&fixed, &rules);
+    assert_eq!(count2, 0);
+    assert_eq!(fixed_pass2, expected_fixed);
+}

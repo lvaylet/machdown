@@ -196,6 +196,30 @@ pub struct HeadingNode {
     pub span: Span,
 }
 
+/// Single list item node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListItemNode {
+    pub is_ordered: bool,
+    pub marker: String,
+    pub bullet_char: Option<char>,
+    pub number: Option<u64>,
+    pub delimiter: Option<char>,
+    pub indentation: usize,
+    pub spaces_after_marker: usize,
+    pub content: String,
+    pub marker_span: Span,
+    pub span: Span,
+    pub line_number: usize,
+}
+
+/// A block of list items forming a list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListNode {
+    pub is_ordered: bool,
+    pub items: Vec<ListItemNode>,
+    pub span: Span,
+}
+
 /// Node in document AST.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
@@ -209,6 +233,8 @@ pub enum Node {
     BlockId(BlockIdNode),
     Paragraph(Vec<Node>, Span),
     Text(String, Span),
+    List(ListNode),
+    ListItem(ListItemNode),
 }
 
 /// Represents a parsed Markdown document.
@@ -364,6 +390,47 @@ impl Document {
                 Node::Heading(h) => out.push(h),
                 Node::Callout(c) => self.collect_headings(&c.content, out),
                 Node::Paragraph(children, _) => self.collect_headings(children, out),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn list_items(&self) -> Vec<&ListItemNode> {
+        let mut result = Vec::new();
+        self.collect_list_items(&self.nodes, &mut result);
+        result
+    }
+
+    fn collect_list_items<'a>(&self, nodes: &'a [Node], out: &mut Vec<&'a ListItemNode>) {
+        for node in nodes {
+            match node {
+                Node::List(list) => {
+                    for item in &list.items {
+                        out.push(item);
+                    }
+                }
+                Node::ListItem(item) => out.push(item),
+                Node::Callout(c) => self.collect_list_items(&c.content, out),
+                Node::Paragraph(children, _) => self.collect_list_items(children, out),
+                _ => {}
+            }
+        }
+    }
+
+    pub fn lists(&self) -> Vec<&ListNode> {
+        let mut result = Vec::new();
+        self.collect_lists(&self.nodes, &mut result);
+        result
+    }
+
+    fn collect_lists<'a>(&self, nodes: &'a [Node], out: &mut Vec<&'a ListNode>) {
+        for node in nodes {
+            match node {
+                Node::List(list) => {
+                    out.push(list);
+                }
+                Node::Callout(c) => self.collect_lists(&c.content, out),
+                Node::Paragraph(children, _) => self.collect_lists(children, out),
                 _ => {}
             }
         }
@@ -623,6 +690,43 @@ fn parse_ast_nodes(lines: &[Line]) -> Vec<Node> {
             }
         }
 
+        if let Some(item) = try_parse_list_item(line) {
+            let start_idx = idx;
+            let mut end_idx = idx;
+            let current_is_ordered = item.is_ordered;
+            let mut items = vec![item];
+
+            while end_idx + 1 < lines.len() {
+                if let Some(next_item) = try_parse_list_item(&lines[end_idx + 1]) {
+                    if next_item.is_ordered != current_is_ordered {
+                        break;
+                    }
+                    items.push(next_item);
+                    end_idx += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let span = Span::new(
+                lines[start_idx].byte_offset(),
+                lines[end_idx].byte_offset() + lines[end_idx].byte_len(),
+                lines[start_idx].line_number(),
+                1,
+                lines[end_idx].line_number(),
+                lines[end_idx].content().len() + 1 + lines[end_idx].ending().len(),
+            );
+
+            nodes.push(Node::List(ListNode {
+                is_ordered: current_is_ordered,
+                items,
+                span,
+            }));
+
+            idx = end_idx + 1;
+            continue;
+        }
+
         parse_line(line, &mut nodes);
         idx += 1;
     }
@@ -630,7 +734,116 @@ fn parse_ast_nodes(lines: &[Line]) -> Vec<Node> {
     nodes
 }
 
+fn is_thematic_break(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.len() < 3 {
+        return false;
+    }
+    let chars: Vec<char> = trimmed.chars().filter(|c| !c.is_whitespace()).collect();
+    if chars.len() < 3 {
+        return false;
+    }
+    let first = chars[0];
+    (first == '*' || first == '-' || first == '_') && chars.iter().all(|&c| c == first)
+}
+
+pub fn try_parse_list_item(line: &Line) -> Option<ListItemNode> {
+    let content = line.content();
+    if is_thematic_break(content) {
+        return None;
+    }
+
+    let trimmed_start = content.trim_start();
+    let indentation = content.len() - trimmed_start.len();
+    if trimmed_start.is_empty() {
+        return None;
+    }
+
+    let mut is_ordered = false;
+    let mut marker = String::new();
+    let mut bullet_char = None;
+    let mut number = None;
+    let mut delimiter = None;
+    let mut after_marker_str = "";
+
+    let first_char = trimmed_start.chars().next().unwrap();
+    if (first_char == '*' || first_char == '-' || first_char == '+')
+        && (trimmed_start.len() == 1
+            || trimmed_start.as_bytes()[1] == b' '
+            || trimmed_start.as_bytes()[1] == b'\t')
+    {
+        is_ordered = false;
+        marker.push(first_char);
+        bullet_char = Some(first_char);
+        after_marker_str = &trimmed_start[1..];
+    } else {
+        let digits_len = trimmed_start
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .count();
+        if digits_len > 0 && digits_len <= 9 && trimmed_start.len() > digits_len {
+            let delim_char = trimmed_start.as_bytes()[digits_len] as char;
+            if (delim_char == '.' || delim_char == ')')
+                && (trimmed_start.len() == digits_len + 1
+                    || trimmed_start.as_bytes()[digits_len + 1] == b' '
+                    || trimmed_start.as_bytes()[digits_len + 1] == b'\t')
+            {
+                is_ordered = true;
+                marker = trimmed_start[..digits_len + 1].to_string();
+                number = trimmed_start[..digits_len].parse::<u64>().ok();
+                delimiter = Some(delim_char);
+                after_marker_str = &trimmed_start[digits_len + 1..];
+            }
+        }
+    }
+
+    if marker.is_empty() {
+        return None;
+    }
+
+    let spaces_after_marker = after_marker_str.len() - after_marker_str.trim_start().len();
+    let item_content = after_marker_str.trim_start().to_string();
+
+    let marker_start_byte = line.byte_offset() + indentation;
+    let marker_end_byte = marker_start_byte + marker.len();
+
+    let marker_span = Span::new(
+        marker_start_byte,
+        marker_end_byte,
+        line.line_number(),
+        indentation + 1,
+        line.line_number(),
+        indentation + 1 + marker.len(),
+    );
+
+    let span = Span::new(
+        line.byte_offset(),
+        line.byte_offset() + line.byte_len(),
+        line.line_number(),
+        1,
+        line.line_number(),
+        line.content().len() + 1 + line.ending().len(),
+    );
+
+    Some(ListItemNode {
+        is_ordered,
+        marker,
+        bullet_char,
+        number,
+        delimiter,
+        indentation,
+        spaces_after_marker,
+        content: item_content,
+        marker_span,
+        span,
+        line_number: line.line_number(),
+    })
+}
+
 fn parse_line(line: &Line, nodes: &mut Vec<Node>) {
+    if let Some(item) = try_parse_list_item(line) {
+        nodes.push(Node::ListItem(item));
+    }
     let content = line.content();
 
     // Check for WikiLinks `[[...]]`

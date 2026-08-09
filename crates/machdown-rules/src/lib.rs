@@ -160,6 +160,9 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(MD001HeadingIncrement),
         Box::new(MD002FirstHeadingLevel::default()),
         Box::new(MD003HeadingStyle::default()),
+        Box::new(MD004UnorderedListStyle::default()),
+        Box::new(MD005ListIndent),
+        Box::new(MD007UlIndent::default()),
         Box::new(MD009TrailingWhitespace),
         Box::new(MD018NoMissingSpaceAtx),
         Box::new(MD019NoMultipleSpaceAtx),
@@ -168,5 +171,8 @@ pub fn default_rules() -> Vec<Box<dyn Rule>> {
         Box::new(MD022BlanksAroundHeadings::default()),
         Box::new(MD023HeadingStartLeft),
         Box::new(MD025MultipleTopLevelHeadings::default()),
+        Box::new(MD029OlPrefix::default()),
+        Box::new(MD030SpacesAfterListMarker::default()),
+        Box::new(MD032BlanksAroundLists),
     ]
 }

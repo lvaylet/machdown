@@ -233,3 +233,26 @@ fn test_parse_headings_atx_setext_closed() {
     assert_eq!(headings[6].style, HeadingStyle::Setext);
     assert_eq!(headings[6].title, "Setext Level 2");
 }
+
+#[test]
+fn test_parse_lists() {
+    let source = "* Item 1\n* Item 2\n  1. Subitem 1\n  2. Subitem 2\n";
+    let doc = parse(source);
+
+    let list_items = doc.list_items();
+    assert_eq!(list_items.len(), 4);
+    assert!(!list_items[0].is_ordered);
+    assert_eq!(list_items[0].marker, "*");
+    assert_eq!(list_items[0].indentation, 0);
+    assert_eq!(list_items[0].spaces_after_marker, 1);
+
+    assert!(list_items[2].is_ordered);
+    assert_eq!(list_items[2].marker, "1.");
+    assert_eq!(list_items[2].indentation, 2);
+    assert_eq!(list_items[2].spaces_after_marker, 1);
+
+    let lists = doc.lists();
+    assert_eq!(lists.len(), 2);
+    assert_eq!(lists[0].items.len(), 2);
+    assert_eq!(lists[1].items.len(), 2);
+}
